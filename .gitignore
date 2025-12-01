@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Virtualenv
+venv/
+.env/
+.env
+ENV/
+env/
+
+# VSCode / IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# sensitive files
+secret*.key
+data/employee_handbook_real.pdf
