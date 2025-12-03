@@ -2,6 +2,10 @@ import os
 import re
 from dotenv import load_dotenv
 import azure.cognitiveservices.speech as speechsdk
+import tempfile
+import sounddevice as sd
+import soundfile as sf
+import time
 
 load_dotenv()
 
@@ -10,11 +14,8 @@ speech_config = speechsdk.SpeechConfig(
     region=os.getenv("AZURE_SPEECH_REGION")
 )
 
-# Recommended Singapore voice; change if you prefer another voice
-#speech_config.speech_synthesis_voice_name = "en-SG-LunaNeural"
-speech_config.speech_synthesis_voice_name = "en-SG-WayneNeural"
-
-audio_config = speechsdk.audio.AudioOutputConfig(use_default_speaker=True)
+# Voice Options: en-SG-LunaNeural (Female Singlish), en-SG-WayneNeural (Male Singlish), en-US-JennyNeural (Female English)
+speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
 
 def prepare_text_for_speech(text: str) -> str:
     """
@@ -51,17 +52,31 @@ def prepare_text_for_speech(text: str) -> str:
 
     return text.strip()
 
-
 def speak_text(text: str):
-    """Speaks cleaned text using Azure TTS."""
     spoken_text = prepare_text_for_speech(text)
-    synthesizer = speechsdk.SpeechSynthesizer(
-        speech_config=speech_config,
-        audio_config=audio_config
-    )
 
-    # Correct method — async + block until finished
+    # 1) Create temp WAV
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        wav_path = tmp.name
+
+    # 2) Synthesize to WAV file
+    audio_cfg = speechsdk.audio.AudioOutputConfig(filename=wav_path)
+    synthesizer = speechsdk.SpeechSynthesizer(speech_config, audio_cfg)
     result = synthesizer.speak_text_async(spoken_text).get()
 
     if result.reason != speechsdk.ResultReason.SynthesizingAudioCompleted:
         print("TTS failed:", result.reason)
+        return
+
+    # 3) Ensure file is done
+    time.sleep(0.05)
+
+    # 4) Load the file safely
+    data, samplerate = sf.read(wav_path)
+
+    # 5) Play via sounddevice
+    sd.play(data, samplerate)
+    sd.wait()
+
+    # Cleanup
+    os.remove(wav_path)

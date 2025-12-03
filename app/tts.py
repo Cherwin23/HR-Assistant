@@ -13,7 +13,7 @@ def speak_text(text: str):
     # Request streaming WAV audio
     response = client.audio.speech.with_streaming_response.create(
         model=os.getenv("TTS_MODEL"),
-        voice="alloy", # Can choose other voices (alloy, onyx, verse, nova, shimmer)
+        voice="onyx", # Can choose other voices: alloy (serious female), onyx,(serious male) verse (cheerful male), nova (cheerful female), shimmer (serious female)
         input=text,
         response_format="wav",
     )
