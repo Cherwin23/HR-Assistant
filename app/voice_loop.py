@@ -2,6 +2,7 @@ import os
 import uuid
 import requests
 from dotenv import load_dotenv
+import time
 
 from stt import record_hot_mic, transcribe_audio
 from tts import speak_text
@@ -21,7 +22,7 @@ def voice_loop():
     """Full voice → STT → RAG → TTS assistant loop."""
     while True:
         print("\n🎤 Speak now…")
-
+        start_time = time.time()
         wav_file = record_hot_mic()         # Hot mic listening
         text = transcribe_audio(wav_file)   # Azure GPT-4o-mini transcription
         os.remove(wav_file)
@@ -34,6 +35,10 @@ def voice_loop():
 
         rag_answer = ask_rag(text)
         print(f"\n🤖 HR Assistant: {rag_answer}")
+
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        print(f"Elapsed time: {elapsed_time:.4f} seconds")
 
         speak_text(rag_answer)
 

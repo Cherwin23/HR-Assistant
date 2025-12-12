@@ -9,8 +9,9 @@ speech_config = speechsdk.SpeechConfig(
     subscription=os.getenv("AZURE_SPEECH_KEY"),
     region=os.getenv("AZURE_SPEECH_REGION")
 )
+
 # Force English (adjust to en-SG or en-US as you prefer)
-speech_config.speech_recognition_language = "en-US"
+speech_config.speech_recognition_language = "en-SG"
 
 # Use the default system microphone
 def transcribe_from_mic(timeout_seconds: int = 8) -> str:

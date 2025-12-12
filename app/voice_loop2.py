@@ -25,6 +25,7 @@ def main_loop():
 
     while True:
         try:
+            start_time = time.time()
             # 1) STT: listen once (blocked until end-of-utterance)
             text = transcribe_from_mic(timeout_seconds=8)
 
@@ -39,6 +40,10 @@ def main_loop():
             # 2) Send text to RAG
             answer = ask_rag(text)
             print(f"\nAssistant: {answer}\n")
+
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            print(f"Elapsed time: {elapsed_time:.4f} seconds")
 
             # 3) Speak back the answer (TTS)
             speak_text(answer)
