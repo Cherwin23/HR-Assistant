@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import Dict, List
-from app.rag import rag_agent
-from langchain_core.messages import HumanMessage, BaseMessage
+from typing import Dict, List, Optional
+from app.rag import process_with_intent_classification
+from langchain_core.messages import HumanMessage, BaseMessage, AIMessage
 
 app = FastAPI(title="HR Voice Assistant API")
 
@@ -11,34 +11,53 @@ SESSION_MEMORY: Dict[str, List[BaseMessage]] = {}
 
 # REQUEST BODY MODEL
 class Query(BaseModel):
-    session_id: str
-    question: str
+    question: str  # required
+    session_id: Optional[str] = None  # optional
+    user_id: Optional[str] = None  # optional
 
-# MAIN CHAT ENDPOINT (with memory)
-@app.post("/ask")
+# RESPONSE MODEL
+class IntentResponse(BaseModel):
+    intent: str
+    category: str
+    module: Optional[str] = None
+    use_case: Optional[str] = None
+    answer: Optional[str] = None
+    confidence: float
+    requires_context: List[str] = []
+    entities: Dict = {}
+
+# MAIN CHAT ENDPOINT (with memory and intent classification)
+@app.post("/ask", response_model=IntentResponse)
 async def ask_question(payload: Query):
-    session_id = payload.session_id
-
+    """
+    Gateway Decision Engine API /ask endpoint.
+    Returns intent classification, category, answer (for queries), confidence, entities, and requires_context.
+    """
+    # Generate session_id if not provided
+    session_id = payload.session_id or "default"
+    
     # Create a new conversation if session_id doesn't exist yet
     if session_id not in SESSION_MEMORY:
         SESSION_MEMORY[session_id] = []
 
+    # Get conversation history for context
+    conversation_history = SESSION_MEMORY[session_id]
+
+    # Process with intent classification and conditional RAG
+    result = process_with_intent_classification(
+        question=payload.question,
+        conversation_history=conversation_history if conversation_history else None
+    )
+
     # Add user message to memory
     SESSION_MEMORY[session_id].append(HumanMessage(content=payload.question))
+    
+    # Add assistant response to memory (if answer exists)
+    if result.get("answer"):
+        SESSION_MEMORY[session_id].append(AIMessage(content=result["answer"]))
 
-    # Run the agent with the *entire* conversation history
-    result = rag_agent.invoke({"messages": SESSION_MEMORY[session_id]})
-
-    # Get the assistant's latest message
-    answer_msg = result["messages"][-1]
-
-    # Save assistant response to memory
-    SESSION_MEMORY[session_id].append(answer_msg)
-
-    # Return as API response
-    return {
-        "answer": answer_msg.content
-    }
+    # Return response
+    return IntentResponse(**result)
 
 # OPTIONAL: RESET SESSION MEMORY
 @app.post("/reset")

@@ -1,35 +1,30 @@
 import os
 from dotenv import load_dotenv
-from typing import TypedDict, Annotated, Sequence
+from typing import TypedDict, Annotated, Sequence, List, Dict, Any, Optional
 from operator import add as add_messages
-
 from langchain_chroma import Chroma
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage
 from langgraph.graph import StateGraph, END
 from langchain_core.tools import tool
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+from prompts.prompt_loader import load_prompt
+from app.intent_classifier import classify_intent
+from app.employee_data import EMPLOYEE_DB_PATH, run_employee_sql
+from app.employee_schema import Employee_Schema_Description
 
 load_dotenv()
 
-# 1. LOAD SYSTEM PROMPT FROM FILE
-
-def load_prompt(path: str) -> str:
-    """Load a text prompt from a file."""
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
-
-system_prompt = load_prompt("prompts/system_prompt.txt")
+# 1. Load System Prompt
+prompt = load_prompt("prompts/system_prompt.txt")
 
 # 2. Initialise Models
-
 llm = AzureChatOpenAI(
     model=os.getenv("CHAT_MODEL"),
     api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
 )
 embeddings = AzureOpenAIEmbeddings(model=os.getenv("EMBEDDING_MODEL"))
 
-# 3. VECTOR STORE
-
+# 3. Vector Store and Retriever
 persist_directory = "chroma_langchain_db"
 collection_name = "hr_rag"
 
@@ -44,19 +39,16 @@ retriever = vectorstore.as_retriever(
     search_kwargs={"k": 4}
 )
 
-# 4. RETRIEVER TOOL
-
 @tool
-def retriever_tool(query: str) -> str:
+def handbook_retriever_tool(query: str) -> str:
     """
-    This tool searches, and returns the most relevant sections of information from the employee handbook document
-    that is relevant to the employee’s question.
-    Focus on policies, procedures, definitions, entitlements, and rules.
+    Search the Employee Handbook for policies, procedures, definitions, entitlements, and rules.
+    Returns the top relevant sections.
     """
     docs = retriever.invoke(query)
 
     if not docs:
-        return "No relevant information found in the employee handbook document."
+        return "No relevant information found in the employee handbook."
 
     results = []
     for i, doc in enumerate(docs):
@@ -64,12 +56,32 @@ def retriever_tool(query: str) -> str:
 
     return "\n\n".join(results)
 
-tools = [retriever_tool]
+# 4. Employee Data
+
+@tool
+def employee_data_sql_tool(sql_query: str) -> str:
+    """
+    Execute a read-only SQL query against the employee data (SQLite).
+    Only SELECT statements are allowed. Table name: employees
+    Schema is injected at runtime.
+    """
+    return run_employee_sql(sql_query, db_path=EMPLOYEE_DB_PATH)
+
+employee_data_sql_tool.description = f"""
+Execute a read-only SQL query against the employee data (SQLite).
+- Only SELECT statements are allowed.
+- Table name: employees
+- Use exact SQL, not natural language.
+
+Schema:
+{Employee_Schema_Description}
+"""
+
+tools = [handbook_retriever_tool, employee_data_sql_tool]
 tools_dict = {t.name: t for t in tools}
 llm = llm.bind_tools(tools)
 
-# 5. LANGGRAPH AGENT
-
+# 5. LangGraph Agent
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
@@ -81,7 +93,7 @@ def should_continue(state: AgentState):
 def call_llm(state: AgentState) -> AgentState:
     """Function to call the LLM with the current state."""
     messages = list(state['messages'])
-    messages = [SystemMessage(content=system_prompt)] + messages
+    messages = [SystemMessage(content=prompt)] + messages
     message = llm.invoke(messages)
     return {"messages": [message]}
 
@@ -91,21 +103,32 @@ def take_action(state: AgentState) -> AgentState:
     results = []
 
     for t in tool_calls:
-        print(f"Calling Tool: {t['name']} with query: {t['args'].get('query', 'No query provided')}")
-
-        if not t['name'] in tools_dict:  # Checks if a valid tool is present
-            print(f"\nTool: {t['name']} does not exist.")
-            result = "Incorrect Tool Name, Please Retry and Select tool from List of Available tools."
-
+        tool_name = t['name']
+        args = t.get('args', {})
+        
+        # Get the appropriate argument (different tools use different param names)
+        if 'query' in args:
+            arg_value = args['query']
+            print(f"Calling Tool: {tool_name} with query: {arg_value}")
+        elif 'sql_query' in args:
+            arg_value = args['sql_query']
+            print(f"Calling Tool: {tool_name} with SQL: {arg_value}")
         else:
-            result = tools_dict[t['name']].invoke(t['args'].get('query', ''))
+            arg_value = str(args)
+            print(f"Calling Tool: {tool_name} with args: {arg_value}")
+
+        if not tool_name in tools_dict:  # Checks if a valid tool is present
+            print(f"\nTool: {tool_name} does not exist.")
+            result = "Incorrect Tool Name, Please Retry and Select tool from List of Available tools."
+        else:
+            # Invoke tool with the args dict (tool will extract the right parameter)
+            result = tools_dict[tool_name].invoke(args)
 
         # Appends the Tool Message
-        results.append(ToolMessage(tool_call_id=t['id'], name=t['name'], content=str(result)))
+        results.append(ToolMessage(tool_call_id=t['id'], name=tool_name, content=str(result)))
     return {"messages": results}
 
-# 6. BUILD LANGGRAPH
-
+# 6. Build Graph
 graph = StateGraph(AgentState)
 graph.add_node("llm", call_llm)
 graph.add_node("retriever_agent", take_action)
@@ -119,6 +142,131 @@ graph.add_edge("retriever_agent", "llm")
 graph.set_entry_point("llm")
 
 rag_agent = graph.compile()
+
+# 7. Intent-Aware RAG Agent
+def process_with_intent_classification(
+    question: str, 
+    conversation_history: Optional[List[BaseMessage]] = None
+) -> Dict[str, Any]:
+    """
+    Process user question with intent classification and conditional RAG.
+    Returns response matching schema in Section 5.1.
+    
+    Args:
+        question: User's input question
+        conversation_history: Optional list of previous messages for context
+    
+    Returns:
+        Dictionary matching Section 5.1 response schema:
+        {
+            "intent": str,
+            "category": str,
+            "module": str | None,
+            "use_case": str | None,
+            "answer": str | None,
+            "confidence": float,
+            "requires_context": List[str],
+            "entities": Dict[str, Any]
+        }
+    """
+    # Step 1: Intent Classification
+    intent_result = classify_intent(question, conversation_history)
+    
+    category = intent_result.get("category", "").lower()
+    confidence = intent_result.get("confidence", 0.0)
+    
+    # Step 2: Category-Based Routing
+    
+    # INVALID or low confidence: Return rejection
+    if category == "invalid" or confidence < 0.6:
+        return {
+            "intent": intent_result.get("intent", "invalid"),
+            "category": "invalid",
+            "module": intent_result.get("module"),
+            "use_case": intent_result.get("use_case"),
+            "answer": intent_result.get("answer", "I can only assist with HR-related queries. Please rephrase your question."),
+            "confidence": confidence,
+            "requires_context": [],
+            "entities": intent_result.get("entities", {})
+        }
+    
+    # CONVERSATIONAL: Return pre-generated answer
+    if category == "conversational":
+        return {
+            "intent": intent_result.get("intent", "conversational"),
+            "category": "conversational",
+            "module": None,
+            "use_case": None,
+            "answer": intent_result.get("answer", "Hello! How can I help you with HR-related questions today?"),
+            "confidence": confidence,
+            "requires_context": [],
+            "entities": {}
+        }
+    
+    # ACTION: Return intent classification result (answer will be null, Gateway handles it)
+    if category == "action":
+        return {
+            "intent": intent_result.get("intent"),
+            "category": "action",
+            "module": intent_result.get("module"),
+            "use_case": intent_result.get("use_case"),
+            "answer": None,  # Gateway will handle action processing
+            "confidence": confidence,
+            "requires_context": intent_result.get("requires_context", []),
+            "entities": intent_result.get("entities", {})
+        }
+    
+    # QUERY: Use RAG to generate answer
+    if category == "query":
+        # Prepare messages for RAG
+        if conversation_history:
+            rag_messages = list(conversation_history)
+        else:
+            rag_messages = []
+        
+        # Add current question
+        rag_messages.append(HumanMessage(content=question))
+        
+        # Run RAG agent
+        try:
+            rag_result = rag_agent.invoke({"messages": rag_messages})
+            rag_answer = rag_result["messages"][-1].content
+            
+            return {
+                "intent": intent_result.get("intent"),
+                "category": "query",
+                "module": intent_result.get("module"),
+                "use_case": intent_result.get("use_case"),
+                "answer": rag_answer,
+                "confidence": confidence,
+                "requires_context": [],
+                "entities": intent_result.get("entities", {})
+            }
+        except Exception as e:
+            print(f"RAG error: {e}")
+            # Fallback: return intent classification with error message
+            return {
+                "intent": intent_result.get("intent"),
+                "category": "query",
+                "module": intent_result.get("module"),
+                "use_case": intent_result.get("use_case"),
+                "answer": "I encountered an error retrieving information. Please try again.",
+                "confidence": confidence * 0.5,  # Reduce confidence due to error
+                "requires_context": [],
+                "entities": intent_result.get("entities", {})
+            }
+    
+    # Fallback (should not reach here)
+    return {
+        "intent": intent_result.get("intent", "invalid"),
+        "category": "invalid",
+        "module": None,
+        "use_case": None,
+        "answer": "I encountered an error processing your request. Please try again.",
+        "confidence": 0.0,
+        "requires_context": [],
+        "entities": {}
+    }
 
 def run_rag():
     conversation = []  # persistent buffer
@@ -139,27 +287,3 @@ def run_rag():
 
         print("\n=== ANSWER ===")
         print(result["messages"][-1].content)
-
-# To test
-# def running_agent():
-#     print("\n=== RAG AGENT===")
-#     conversation = []
-#
-#     while True:
-#         user_input = input("\nWhat is your question: ")
-#         if user_input.lower() in ['exit', 'quit']:
-#             break
-#
-#         # append user's message
-#         conversation.append(HumanMessage(content=user_input))
-#
-#         # run the agent with full conversation history
-#         result = rag_agent.invoke({"messages": conversation})
-#
-#         # append assistant response
-#         conversation.append(result["messages"][-1])
-#
-#         print("\n=== ANSWER ===")
-#         print(result['messages'][-1].content)
-#
-# running_agent()
