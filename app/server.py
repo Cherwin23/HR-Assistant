@@ -43,8 +43,8 @@ async def ask_question(payload: Query):
     # Get conversation history for context
     conversation_history = SESSION_MEMORY[session_id]
 
-    # Process with intent classification and conditional RAG
-    result = process_with_intent_classification(
+    # Process with intent classification and conditional RAG (async)
+    result = await process_with_intent_classification(
         question=payload.question,
         conversation_history=conversation_history if conversation_history else None
     )

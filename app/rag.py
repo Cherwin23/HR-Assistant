@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 from typing import TypedDict, Annotated, Sequence, List, Dict, Any, Optional
 from operator import add as add_messages
+import asyncio
 from langchain_chroma import Chroma
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage
 from langgraph.graph import StateGraph, END
@@ -90,42 +91,80 @@ def should_continue(state: AgentState):
     result = state["messages"][-1]
     return hasattr(result, "tool_calls") and len(result.tool_calls) > 0
 
-def call_llm(state: AgentState) -> AgentState:
-    """Function to call the LLM with the current state."""
+async def call_llm(state: AgentState) -> AgentState:
+    """Async function to call the LLM with the current state."""
     messages = list(state['messages'])
     messages = [SystemMessage(content=prompt)] + messages
-    message = llm.invoke(messages)
+    message = await llm.ainvoke(messages)  # Use ainvoke for async
     return {"messages": [message]}
 
-def take_action(state: AgentState) -> AgentState:
-    """Execute tool calls from the LLM's response."""
+async def _execute_single_tool(tool_call: dict) -> tuple:
+    """Execute a single tool call asynchronously. Returns (tool_call_id, tool_name, result)."""
+    tool_name = tool_call['name']
+    tool_call_id = tool_call['id']
+    args = tool_call.get('args', {})
+    
+    # Get the appropriate argument for logging
+    if 'query' in args:
+        arg_value = args['query']
+        print(f"Calling Tool: {tool_name} with query: {arg_value}")
+    elif 'sql_query' in args:
+        arg_value = args['sql_query']
+        print(f"Calling Tool: {tool_name} with SQL: {arg_value}")
+    else:
+        arg_value = str(args)
+        print(f"Calling Tool: {tool_name} with args: {arg_value}")
+
+    if tool_name not in tools_dict:
+        print(f"\nTool: {tool_name} does not exist.")
+        result = "Incorrect Tool Name, Please Retry and Select tool from List of Available tools."
+    else:
+        tool = tools_dict[tool_name]
+        
+        # For blocking operations like SQLite, use asyncio.to_thread
+        # For LangChain tools that support async, use ainvoke
+        if tool_name == "employee_data_sql_tool":
+            # Run blocking SQLite operation in a thread pool
+            result = await asyncio.to_thread(tool.invoke, args)
+        else:
+            # Try async invoke first, fallback to sync in thread if needed
+            try:
+                result = await tool.ainvoke(args)
+            except AttributeError:
+                # Fallback to synchronous invoke in thread if ainvoke not available
+                result = await asyncio.to_thread(tool.invoke, args)
+    
+    return (tool_call_id, tool_name, str(result))
+
+async def take_action(state: AgentState) -> AgentState:
+    """Execute tool calls from the LLM's response in parallel using asyncio."""
     tool_calls = state["messages"][-1].tool_calls
     results = []
-
-    for t in tool_calls:
-        tool_name = t['name']
-        args = t.get('args', {})
+    
+    # Execute tools in parallel using asyncio.gather
+    if len(tool_calls) > 1:
+        print(f"[PARALLEL] Executing {len(tool_calls)} tools concurrently with asyncio...")
+        # Execute all tools in parallel - asyncio.gather maintains order
+        tool_results = await asyncio.gather(*[
+            _execute_single_tool(t) for t in tool_calls
+        ])
         
-        # Get the appropriate argument (different tools use different param names)
-        if 'query' in args:
-            arg_value = args['query']
-            print(f"Calling Tool: {tool_name} with query: {arg_value}")
-        elif 'sql_query' in args:
-            arg_value = args['sql_query']
-            print(f"Calling Tool: {tool_name} with SQL: {arg_value}")
-        else:
-            arg_value = str(args)
-            print(f"Calling Tool: {tool_name} with args: {arg_value}")
-
-        if not tool_name in tools_dict:  # Checks if a valid tool is present
-            print(f"\nTool: {tool_name} does not exist.")
-            result = "Incorrect Tool Name, Please Retry and Select tool from List of Available tools."
-        else:
-            # Invoke tool with the args dict (tool will extract the right parameter)
-            result = tools_dict[tool_name].invoke(args)
-
-        # Appends the Tool Message
-        results.append(ToolMessage(tool_call_id=t['id'], name=tool_name, content=str(result)))
+        # Build results in original order (asyncio.gather maintains order)
+        for tool_call_id, tool_name, result in tool_results:
+            results.append(ToolMessage(
+                tool_call_id=tool_call_id,
+                name=tool_name,
+                content=result
+            ))
+    else:
+        # Single tool call - execute directly
+        tool_call_id, tool_name, result = await _execute_single_tool(tool_calls[0])
+        results.append(ToolMessage(
+            tool_call_id=tool_call_id,
+            name=tool_name,
+            content=result
+        ))
+    
     return {"messages": results}
 
 # 6. Build Graph
@@ -144,7 +183,7 @@ graph.set_entry_point("llm")
 rag_agent = graph.compile()
 
 # 7. Intent-Aware RAG Agent
-def process_with_intent_classification(
+async def process_with_intent_classification(
     question: str, 
     conversation_history: Optional[List[BaseMessage]] = None
 ) -> Dict[str, Any]:
@@ -227,9 +266,9 @@ def process_with_intent_classification(
         # Add current question
         rag_messages.append(HumanMessage(content=question))
         
-        # Run RAG agent
+        # Run RAG agent asynchronously
         try:
-            rag_result = rag_agent.invoke({"messages": rag_messages})
+            rag_result = await rag_agent.ainvoke({"messages": rag_messages})
             rag_answer = rag_result["messages"][-1].content
             
             return {
@@ -268,7 +307,7 @@ def process_with_intent_classification(
         "entities": {}
     }
 
-def run_rag():
+async def run_rag():
     conversation = []  # persistent buffer
 
     while True:
@@ -280,10 +319,15 @@ def run_rag():
         conversation.append(HumanMessage(content=user_input))
 
         # send ENTIRE conversation history
-        result = rag_agent.invoke({"messages": conversation})
+        result = await rag_agent.ainvoke({"messages": conversation})
 
         # append model response so it's remembered
         conversation.append(result["messages"][-1])
 
         print("\n=== ANSWER ===")
         print(result["messages"][-1].content)
+
+
+# Main entry point for CLI usage
+if __name__ == "__main__":
+    asyncio.run(run_rag())
