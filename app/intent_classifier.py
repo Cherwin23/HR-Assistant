@@ -4,7 +4,6 @@ from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 from langchain_openai import AzureChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_core.output_parsers import JsonOutputParser
 from prompts.prompt_loader import load_prompt
 
 load_dotenv()
@@ -18,9 +17,6 @@ llm = AzureChatOpenAI(
     api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
     temperature=0.1,  # Lower temperature for more consistent classification
 )
-
-# JSON parser for structured output
-json_parser = JsonOutputParser()
 
 def classify_intent(question: str, conversation_history: Optional[list] = None) -> Dict[str, Any]:
     """
