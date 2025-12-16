@@ -1,22 +1,25 @@
+"""
+Intent Classification Service
+Business logic for intent classification and entity extraction.
+"""
 import os
 import json
 from typing import Dict, Any, Optional
-from dotenv import load_dotenv
 from langchain_openai import AzureChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
-from prompts.prompt_loader import load_prompt
+from app.config.settings import CHAT_MODEL, AZURE_OPENAI_API_VERSION, INTENT_CLASSIFICATION_PROMPT_PATH
+from app.utils.prompt_loader import load_prompt
 
-load_dotenv()
+# Load intent classification prompt
+intent_prompt = load_prompt(INTENT_CLASSIFICATION_PROMPT_PATH)
 
-# 1. Load Intent Classification Prompt
-prompt = load_prompt("prompts/intent_classification_prompt.txt")
-
-# 2. Initialise Model
-llm = AzureChatOpenAI(
-    model=os.getenv("CHAT_MODEL"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+# Initialize LLM for intent classification
+intent_llm = AzureChatOpenAI(
+    model=CHAT_MODEL,
+    api_version=AZURE_OPENAI_API_VERSION,
     temperature=0.1,  # Lower temperature for more consistent classification
 )
+
 
 def classify_intent(question: str, conversation_history: Optional[list] = None) -> Dict[str, Any]:
     """
@@ -31,7 +34,7 @@ def classify_intent(question: str, conversation_history: Optional[list] = None) 
         requires_context, and entities
     """
     # Build messages
-    messages = [SystemMessage(content=prompt)]
+    messages = [SystemMessage(content=intent_prompt)]
     
     # Add conversation history if available (last 3 messages for context)
     if conversation_history:
@@ -44,7 +47,7 @@ def classify_intent(question: str, conversation_history: Optional[list] = None) 
     
     try:
         # Get response from LLM
-        response = llm.invoke(messages)
+        response = intent_llm.invoke(messages)
         
         # Parse JSON from response content
         content = response.content
@@ -93,6 +96,7 @@ def classify_intent(question: str, conversation_history: Optional[list] = None) 
             "requires_context": [],
             "entities": {}
         }
+
 
 def normalize_intent_response(result: Dict[str, Any]) -> Dict[str, Any]:
     """

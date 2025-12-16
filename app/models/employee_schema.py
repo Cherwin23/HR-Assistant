@@ -34,4 +34,3 @@ Usage guidance:
 - For leave taken: SELECT leave_taken FROM employees WHERE full_name LIKE '%John%';
 - For employee lookup: SELECT * FROM employees WHERE full_name LIKE '%Jane Doe%';
 """
-

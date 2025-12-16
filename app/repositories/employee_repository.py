@@ -1,15 +1,16 @@
+"""
+Employee Data Repository
+Handles all employee database operations.
+"""
 import csv
 import os
 import sqlite3
 import threading
 from typing import List, Tuple, Optional
+from app.config.settings import EMPLOYEE_CSV_PATH, EMPLOYEE_DB_PATH
 from dotenv import load_dotenv
 
 load_dotenv()
-
-Employee_CSV_Path = os.getenv("CSV_PATH")
-Employee_DB_Path = os.getenv("DB_PATH", "employee_data.db")
-
 
 Employee_Columns: List[Tuple[str, str]] = [
     ("employee_index_id", "TEXT"),
@@ -37,7 +38,7 @@ Employee_Columns: List[Tuple[str, str]] = [
 
 
 def ensure_employee_db(
-    csv_path: str = Employee_CSV_Path, db_path: str = Employee_DB_Path
+    csv_path: str = EMPLOYEE_CSV_PATH, db_path: str = EMPLOYEE_DB_PATH
 ) -> str:
     """
     Ensure a SQLite DB exists for employee data. If not present, build it from CSV.
@@ -107,7 +108,7 @@ def ensure_employee_db(
 
 
 # Ensure database exists when module is imported
-EMPLOYEE_DB_PATH = ensure_employee_db(Employee_CSV_Path, Employee_DB_Path)
+EMPLOYEE_DB_PATH = ensure_employee_db(EMPLOYEE_CSV_PATH, EMPLOYEE_DB_PATH)
 
 # Thread-local storage for connection reuse (thread-safe)
 _thread_local = threading.local()

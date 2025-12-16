@@ -7,12 +7,13 @@ from langchain_openai import AzureOpenAIEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
+from app.config.settings import PDF_PATH, VECTORSTORE_PERSIST_DIRECTORY, VECTORSTORE_COLLECTION_NAME, EMBEDDING_MODEL
 
 load_dotenv()
 
-pdf_path = os.getenv("PDF_PATH")
-persist_directory = "chroma_langchain_db"
-collection_name = "hr_rag"
+pdf_path = PDF_PATH
+persist_directory = VECTORSTORE_PERSIST_DIRECTORY
+collection_name = VECTORSTORE_COLLECTION_NAME
 
 print(pdf_path)
 
@@ -86,7 +87,7 @@ chunks = text_splitter.split_documents(header_docs)
 print(f"[RAG] Total chunks created: {len(chunks)}")
 
 # 4. Embedding + Vector Store
-embeddings = AzureOpenAIEmbeddings(model=os.getenv("EMBEDDING_MODEL"))
+embeddings = AzureOpenAIEmbeddings(model=EMBEDDING_MODEL)
 
 if not os.path.exists(persist_directory):
     os.makedirs(persist_directory)

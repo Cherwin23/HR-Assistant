@@ -1,40 +1,43 @@
-import pyaudio
+"""
+Speech-to-Text Service (OpenAI)
+Handles audio transcription using OpenAI Whisper via Azure OpenAI.
+Includes hot mic recording with VAD.
+"""
+import os
+import tempfile
 import wave
 import time
 import webrtcvad
 import collections
-import os
-import tempfile
-from openai import AzureOpenAI
 from dotenv import load_dotenv
-import requests
-import uuid
+from openai import AzureOpenAI
 
 load_dotenv()
 
+# OpenAI STT Client
 stt_client = AzureOpenAI(api_version=os.environ["AZURE_OPENAI_API_VERSION"])
-session = requests.Session()
-
-RAG_API_URL = "http://localhost:8000/ask"
-SESSION_ID = str(uuid.uuid4())
 
 # VAD HOT MIC SETTINGS
 RATE = 16000
 CHANNELS = 1
-FRAME_DURATION = 30          # ms
+FRAME_DURATION = 30  # ms
 FRAME_SIZE = int(RATE * FRAME_DURATION / 1000)  # samples per frame
-VAD = webrtcvad.Vad(2)       # 0=least aggressive, 3=most aggressive
+VAD = webrtcvad.Vad(2)  # 0=least aggressive, 3=most aggressive
 
 
-def is_speech(frame_bytes):
+def is_speech(frame_bytes) -> bool:
     """Return True if frame contains speech."""
     return VAD.is_speech(frame_bytes, RATE)
 
-def record_hot_mic():
+
+def record_hot_mic() -> str:
     """
     Continuously listens, detects voice activity,
     records until silence, and returns a WAV temp file path.
+    Uses PyAudio and WebRTC VAD.
     """
+    import pyaudio
+    
     print("🎤 Hot mic listening... start speaking!")
 
     pa = pyaudio.PyAudio()
@@ -91,8 +94,17 @@ def record_hot_mic():
 
     return temp_file.name
 
-# TRANSCRIBE
-def transcribe_audio(file_path):
+
+def transcribe_audio(file_path: str) -> str:
+    """
+    Transcribe audio file using OpenAI Whisper (Azure OpenAI).
+    
+    Args:
+        file_path: Path to audio file (WAV format)
+        
+    Returns:
+        Transcribed text
+    """
     with open(file_path, "rb") as f:
         audio_bytes = f.read()
 
@@ -104,28 +116,3 @@ def transcribe_audio(file_path):
     )
     return resp.text.strip()
 
-# RAG CALL
-def ask_rag(question):
-    payload = {"session_id": SESSION_ID, "question": question}
-    resp = session.post(RAG_API_URL, json=payload)
-    return resp.json().get("answer", "(no answer)")
-
-# MAIN LOOP
-def hot_mic_loop():
-    while True:
-        wav_file = record_hot_mic()
-        text = transcribe_audio(wav_file)
-        os.remove(wav_file)
-
-        if not text.strip():
-            print("❗ No speech detected. Try again.")
-            continue
-
-        print(f"\n🗣️ You said: {text}")
-
-        answer = ask_rag(text)
-        print(f"\n🤖 HR Assistant: {answer}\n")
-
-
-if __name__ == "__main__":
-    hot_mic_loop()

@@ -1,35 +1,47 @@
+"""
+Text-to-Speech Service (Azure Speech SDK)
+Handles text-to-speech synthesis using Azure Speech SDK.
+"""
 import os
 import re
+import tempfile
+import time
 from dotenv import load_dotenv
 import azure.cognitiveservices.speech as speechsdk
-import tempfile
 import sounddevice as sd
 import soundfile as sf
-import time
+from app.config.settings import AZURE_SPEECH_KEY, AZURE_SPEECH_REGION
 
 load_dotenv()
 
+# Azure Speech SDK Config
 speech_config = speechsdk.SpeechConfig(
-    subscription=os.getenv("AZURE_SPEECH_KEY"),
-    region=os.getenv("AZURE_SPEECH_REGION")
+    subscription=AZURE_SPEECH_KEY,
+    region=AZURE_SPEECH_REGION
 )
 
 # Voice Options: en-SG-LunaNeural (Female Singlish), en-SG-WayneNeural (Male Singlish), en-US-JennyNeural (Female English)
 speech_config.speech_synthesis_voice_name = "en-US-JennyNeural"
 
+
 def prepare_text_for_speech(text: str) -> str:
     """
     Converts markdown-heavy text into natural speech.
     Removes symbols and rewrites common patterns.
+    
+    Args:
+        text: Text to prepare for speech
+        
+    Returns:
+        Cleaned text suitable for TTS
     """
-
     # Remove markdown headers ###, ##, #
     text = re.sub(r"#+\s*", "", text)
 
     # Replace bullets
     text = re.sub(r"[-•]\s*", " - ", text)
 
-    # Replace “1st”, “2nd”, “3rd”, “4th” etc.
+    # Replace "1st", "2nd", "3rd", "4th" etc.
     text = re.sub(r"\b1st\b", "first", text, flags=re.IGNORECASE)
     text = re.sub(r"\b2nd\b", "second", text, flags=re.IGNORECASE)
     text = re.sub(r"\b3rd\b", "third", text, flags=re.IGNORECASE)
@@ -52,7 +64,14 @@ def prepare_text_for_speech(text: str) -> str:
 
     return text.strip()
 
-def speak_text(text: str):
+
+def speak_text(text: str) -> None:
+    """
+    Synthesize and speak text using Azure Speech SDK.
+    
+    Args:
+        text: Text to speak (will be cleaned automatically)
+    """
     spoken_text = prepare_text_for_speech(text)
 
     # 1) Create temp WAV
@@ -80,3 +99,4 @@ def speak_text(text: str):
 
     # Cleanup
     os.remove(wav_path)
+

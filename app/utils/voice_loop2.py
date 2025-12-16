@@ -1,15 +1,21 @@
+"""
+Voice Loop Utility (Azure Speech SDK)
+Main loop for voice-based interaction using Azure Speech SDK STT/TTS.
+"""
 import uuid
 import time
 import requests
-from stt2 import transcribe_from_mic
-from tts2 import speak_text
+from app.services.stt_service_azure import transcribe_from_mic
+from app.services.tts_service_azure import speak_text
 
 # RAG server URL (ensure this matches your server)
 RAG_API_URL = "http://localhost:8000/ask"
 session = requests.Session()
 SESSION_ID = str(uuid.uuid4())  # keep same session id for the run (memory preserved)
 
+
 def ask_rag(question: str) -> str:
+    """Send question to your FastAPI RAG server."""
     payload = {"session_id": SESSION_ID, "question": question}
     try:
         resp = session.post(RAG_API_URL, json=payload, timeout=10)
@@ -18,6 +24,7 @@ def ask_rag(question: str) -> str:
     except Exception as e:
         print("Error calling RAG server:", e)
         return "(error contacting RAG service)"
+
 
 def main_loop():
     print("=== HR Voice Assistant (Azure STT + TTS) ===")
@@ -58,5 +65,7 @@ def main_loop():
             print("Runtime error in voice loop:", e)
             time.sleep(1)
 
+
 if __name__ == "__main__":
     main_loop()
+

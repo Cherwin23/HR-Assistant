@@ -1,30 +1,36 @@
+"""
+Voice Loop Utility
+Main loop for voice-based interaction using OpenAI STT/TTS.
+"""
 import os
 import uuid
 import requests
 from dotenv import load_dotenv
 import time
 
-from stt import record_hot_mic, transcribe_audio
-from tts import speak_text
+from app.services.stt_service_openai import record_hot_mic, transcribe_audio
+from app.services.tts_service_openai import speak_text
 
 load_dotenv()
 
 RAG_API_URL = "http://localhost:8000/ask"
-SESSION_ID = str(uuid.uuid4())    # persistent conversation
+SESSION_ID = str(uuid.uuid4())  # persistent conversation
 
-def ask_rag(question: str):
+
+def ask_rag(question: str) -> str:
     """Send question to your FastAPI RAG server."""
     payload = {"session_id": SESSION_ID, "question": question}
     resp = requests.post(RAG_API_URL, json=payload)
     return resp.json().get("answer", "(no answer)")
+
 
 def voice_loop():
     """Full voice → STT → RAG → TTS assistant loop."""
     while True:
         print("\n🎤 Speak now…")
         start_time = time.time()
-        wav_file = record_hot_mic()         # Hot mic listening
-        text = transcribe_audio(wav_file)   # Azure GPT-4o-mini transcription
+        wav_file = record_hot_mic()  # Hot mic listening
+        text = transcribe_audio(wav_file)  # Azure GPT-4o-mini transcription
         os.remove(wav_file)
 
         if not text.strip():
@@ -45,3 +51,4 @@ def voice_loop():
 
 if __name__ == "__main__":
     voice_loop()
+
