@@ -1,16 +1,17 @@
 """
 Employee Data Repository
 Handles all employee database operations.
+
+Environment-specific behavior:
+- DEV: If the SQLite DB does not exist, it is auto-created from the CSV file.
+- UAT/PROD: The SQLite DB must be pre-provisioned; we DO NOT auto-create from CSV.
 """
 import csv
 import os
 import sqlite3
 import threading
 from typing import List, Tuple, Optional
-from app.config.settings import EMPLOYEE_CSV_PATH, EMPLOYEE_DB_PATH
-from dotenv import load_dotenv
-
-load_dotenv()
+from app.config.settings import EMPLOYEE_CSV_PATH, EMPLOYEE_DB_PATH, ENV
 
 Employee_Columns: List[Tuple[str, str]] = [
     ("employee_index_id", "TEXT"),
@@ -41,35 +42,56 @@ def ensure_employee_db(
     csv_path: str = EMPLOYEE_CSV_PATH, db_path: str = EMPLOYEE_DB_PATH
 ) -> str:
     """
-    Ensure a SQLite DB exists for employee data. If not present, build it from CSV.
-    Creates indexes for performance optimization.
+    Ensure a SQLite DB exists for employee data.
+
+    DEV:
+        - If the DB does not exist, build it from CSV (source of truth).
+    UAT/PROD:
+        - Expect a pre-provisioned DB.
+        - If the DB is missing, raise an error instead of auto-building from CSV.
+
+    In all environments, we ensure required indexes exist on an existing DB.
     Returns the db_path.
     """
+    # DB already exists: just ensure indexes
     if os.path.exists(db_path):
-        # Check if indexes exist, create them if missing (for existing databases)
         conn = sqlite3.connect(db_path)
         cur = conn.cursor()
         cur.execute("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%';")
         existing_indexes = [row[0] for row in cur.fetchall()]
-        
-        required_indexes = ['idx_department', 'idx_full_name', 'idx_leave_taken', 'idx_employment_status']
+
+        required_indexes = [
+            "idx_department",
+            "idx_full_name",
+            "idx_leave_taken",
+            "idx_employment_status",
+        ]
         missing_indexes = [idx for idx in required_indexes if idx not in existing_indexes]
-        
+
         if missing_indexes:
             print(f"[DB] Creating missing indexes: {missing_indexes}")
-            if 'idx_department' in missing_indexes:
+            if "idx_department" in missing_indexes:
                 cur.execute("CREATE INDEX idx_department ON employees(department);")
-            if 'idx_full_name' in missing_indexes:
+            if "idx_full_name" in missing_indexes:
                 cur.execute("CREATE INDEX idx_full_name ON employees(full_name);")
-            if 'idx_leave_taken' in missing_indexes:
+            if "idx_leave_taken" in missing_indexes:
                 cur.execute("CREATE INDEX idx_leave_taken ON employees(leave_taken);")
-            if 'idx_employment_status' in missing_indexes:
+            if "idx_employment_status" in missing_indexes:
                 cur.execute("CREATE INDEX idx_employment_status ON employees(employment_status);")
             conn.commit()
-        
+
         conn.close()
         return db_path
 
+    # DB does not exist
+    if ENV != "dev":
+        # In UAT/PROD we do NOT auto-build from CSV; DB must be provisioned as part of deployment.
+        raise FileNotFoundError(
+            f"Employee DB not found: {db_path}. In ENV='{ENV}', the employee database "
+            "must be pre-provisioned; it is not auto-created from CSV."
+        )
+
+    # DEV: auto-build DB from CSV
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"Employee CSV not found: {csv_path}")
 
@@ -100,7 +122,7 @@ def ensure_employee_db(
     cur.execute("CREATE INDEX idx_full_name ON employees(full_name);")
     cur.execute("CREATE INDEX idx_leave_taken ON employees(leave_taken);")
     cur.execute("CREATE INDEX idx_employment_status ON employees(employment_status);")
-    
+
     conn.commit()
     conn.close()
     print(f"[DB] Database created with indexes: {db_path}")

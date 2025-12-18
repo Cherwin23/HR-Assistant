@@ -13,6 +13,9 @@ venv/
 .env
 ENV/
 env/
+.env.dev
+.env.uat
+.env.prod
 
 # VSCode / IDE
 .vscode/
@@ -27,3 +30,6 @@ data/employee_handbook_real.pdf
 
 # Local vectorstore (derived data; can be rebuilt via build_vectorstore.py)
 chroma_langchain_db/
+
+# Local dev database (derived from CSV in dev)
+employee_data.db
