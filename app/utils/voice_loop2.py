@@ -18,7 +18,7 @@ def ask_rag(question: str) -> str:
     """Send question to your FastAPI RAG server."""
     payload = {"session_id": SESSION_ID, "question": question}
     try:
-        resp = session.post(RAG_API_URL, json=payload, timeout=10)
+        resp = session.post(RAG_API_URL, json=payload, timeout=20)
         resp.raise_for_status()
         return resp.json().get("answer", "(no answer)")
     except Exception as e:
