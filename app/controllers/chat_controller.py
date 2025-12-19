@@ -11,6 +11,7 @@ from app.services.session_service import (
     clear_session,
     clear_all_sessions
 )
+from app.services.blob_storage_service import get_session_interactions
 
 router = APIRouter()
 
@@ -28,7 +29,8 @@ async def ask_question(query: Query):
         # Process question with intent classification and RAG
         result = await process_with_intent_classification(
             question=query.question,
-            conversation_history=conversation_history if conversation_history else None
+            conversation_history=conversation_history if conversation_history else None,
+            session_id=query.session_id
         )
         
         # Update session history if session_id is provided
@@ -55,3 +57,24 @@ async def reset_session(session_id: str):
         return {"message": f"Session {session_id} reset successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error resetting session: {str(e)}")
+
+
+@router.get("/audit/{session_id}")
+async def get_audit_trail(session_id: str):
+    """
+    Retrieve audit trail (stored interactions) for a session from blob storage.
+    Returns both full_response and summary for each interaction.
+    
+    Note: Returns None if blob storage is not configured or session not found.
+    """
+    try:
+        session_data = await get_session_interactions(session_id)
+        if session_data is None:
+            return {
+                "session_id": session_id,
+                "message": "No audit trail found. This could mean: blob storage not configured, session doesn't exist, or no interactions stored yet.",
+                "data": None
+            }
+        return session_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving audit trail: {str(e)}")

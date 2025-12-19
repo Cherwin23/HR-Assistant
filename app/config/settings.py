@@ -73,7 +73,22 @@ else:
 PDF_PATH = os.getenv("PDF_PATH")
 
 # -----------------------------------------------------------------------------
+# Summarization Configuration (Default to 100 words)
+# -----------------------------------------------------------------------------
+SUMMARY_MAX_WORDS = int(os.getenv("SUMMARY_MAX_WORDS", "100"))
+
+# -----------------------------------------------------------------------------
+# Azure Blob Storage Configuration (for audit trails)
+# -----------------------------------------------------------------------------
+# Provide either connection_string OR (account_name + account_key)
+AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+AZURE_STORAGE_ACCOUNT_NAME = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
+AZURE_STORAGE_ACCOUNT_KEY = os.getenv("AZURE_STORAGE_ACCOUNT_KEY")
+AZURE_STORAGE_CONTAINER_NAME = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "hr-assistant-audit")
+
+# -----------------------------------------------------------------------------
 # Prompt Paths
 # -----------------------------------------------------------------------------
 SYSTEM_PROMPT_PATH = "prompts/system_prompt.txt"
 INTENT_CLASSIFICATION_PROMPT_PATH = "prompts/intent_classification_prompt.txt"
+SUMMARIZATION_PROMPT_PATH = "prompts/summarization_prompt.txt"
