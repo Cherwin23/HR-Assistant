@@ -21,7 +21,7 @@ intent_llm = AzureChatOpenAI(
 )
 
 
-def classify_intent(question: str, conversation_history: Optional[list] = None) -> Dict[str, Any]:
+async def classify_intent(question: str, conversation_history: Optional[list] = None) -> Dict[str, Any]:
     """
     Classify user intent and extract entities.
     
@@ -46,8 +46,8 @@ def classify_intent(question: str, conversation_history: Optional[list] = None) 
     messages.append(HumanMessage(content=f"Classify this user input:\n\n{question}"))
     
     try:
-        # Get response from LLM
-        response = intent_llm.invoke(messages)
+        # Get response from LLM (async)
+        response = await intent_llm.ainvoke(messages)
         
         # Parse JSON from response content
         content = response.content
